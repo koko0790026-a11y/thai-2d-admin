@@ -1,0 +1,8 @@
+{
+  "name": "2D/3D Live Ads Manager",
+  "description": "Mobile-first dark-mode Ads Manager Admin Dashboard connected to Supabase for managing GIF and image ad slots.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
