@@ -6,18 +6,18 @@ import {
   PlusCircle,
   RefreshCw,
   Search,
+  Settings,
   X,
 } from 'lucide-react';
 import { SLOT_OPTIONS } from './types/ads';
 import type { SlotAd, SlotPosition } from './types/ads';
 import {
   ApiError,
-  clearAuthToken,
   deleteAd,
   fetchAds,
   isSafeHttpUrl,
   isSafeTargetUrl,
-  logoutSession,
+  isSupabaseConfigured,
   updateAd,
 } from './lib/api';
 import { PinLockScreen } from './components/PinLockScreen';
@@ -25,6 +25,7 @@ import { SummaryMetrics } from './components/SummaryMetrics';
 import { AdForm } from './components/AdForm';
 import { AdCard } from './components/AdCard';
 import { SupabaseSetupNotice } from './components/SupabaseSetupNotice';
+import { SettingsModal } from './components/SettingsModal';
 
 type StatusFilter = 'all' | 'active' | 'inactive';
 type SlotFilter = 'all' | SlotPosition;
@@ -38,7 +39,8 @@ interface ToastMessage {
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(false);
-  const [supabaseConfigured, setSupabaseConfigured] = useState(true);
+  const [supabaseConfigured, setSupabaseConfigured] = useState(() => isSupabaseConfigured());
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [ads, setAds] = useState<SlotAd[]>([]);
   const [loading, setLoading] = useState(false);
@@ -63,19 +65,21 @@ export default function App() {
   }, []);
 
   const loadAds = useCallback(async () => {
+    if (!isSupabaseConfigured()) {
+      setSupabaseConfigured(false);
+      setAds([]);
+      setLoadError(null);
+      return;
+    }
+
+    setSupabaseConfigured(true);
     setLoading(true);
     setLoadError(null);
     try {
       const rows = await fetchAds();
       setAds(rows);
-      setSupabaseConfigured(true);
     } catch (err) {
       if (err instanceof ApiError) {
-        if (err.status === 401) {
-          clearAuthToken();
-          setUnlocked(false);
-          return;
-        }
         if (err.code === 'SUPABASE_NOT_CONFIGURED') {
           setSupabaseConfigured(false);
           setAds([]);
@@ -112,11 +116,22 @@ export default function App() {
     setUnlocked(true);
   }, []);
 
-  const handleLock = async () => {
-    await logoutSession();
+  const handleLock = () => {
     setAds([]);
     setUnlocked(false);
     setPreviewAd(null);
+    setSettingsOpen(false);
+  };
+
+  const handleSettingsSaved = () => {
+    const configured = isSupabaseConfigured();
+    setSupabaseConfigured(configured);
+    showToast('Settings saved to this browser');
+    if (configured) {
+      void loadAds();
+    } else {
+      setAds([]);
+    }
   };
 
   const handleAdCreated = (created: SlotAd) => {
@@ -151,11 +166,6 @@ export default function App() {
           String(item.id) === key ? { ...item, is_active: ad.is_active } : item,
         ),
       );
-      if (err instanceof ApiError && err.status === 401) {
-        clearAuthToken();
-        setUnlocked(false);
-        return;
-      }
       showToast(
         err instanceof ApiError ? err.message : 'Failed to update ad status.',
         'error',
@@ -177,11 +187,6 @@ export default function App() {
       setAds((prev) => prev.filter((item) => String(item.id) !== key));
       showToast(`Deleted ad for ${ad.agent_name}`);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        clearAuthToken();
-        setUnlocked(false);
-        return;
-      }
       showToast(
         err instanceof ApiError ? err.message : 'Failed to delete ad.',
         'error',
@@ -234,7 +239,7 @@ export default function App() {
           </span>
 
           <nav
-            aria-label="Ad status filter"
+            aria-label="Dashboard navigation"
             className="hidden md:flex items-center gap-6 text-sm font-medium"
           >
             {(
@@ -257,6 +262,13 @@ export default function App() {
                 {item.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="py-1 border-b-2 border-transparent text-slate-400 hover:text-slate-100 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              Settings
+            </button>
           </nav>
 
           <button
@@ -273,7 +285,7 @@ export default function App() {
       {/* Main Responsive Content Container */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-5 sm:pt-7 space-y-6">
         {!supabaseConfigured && (
-          <SupabaseSetupNotice onRetry={loadAds} isRetrying={loading} />
+          <SupabaseSetupNotice onConnected={handleSettingsSaved} />
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -392,13 +404,22 @@ export default function App() {
                   className="bg-rose-500/10 border border-rose-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                 >
                   <p className="text-sm text-rose-300">{loadError}</p>
-                  <button
-                    type="button"
-                    onClick={() => void loadAds()}
-                    className="min-h-[40px] px-3.5 py-2 rounded-lg bg-rose-500/20 text-xs font-semibold text-rose-200 hover:bg-rose-500/30 transition-colors shrink-0 cursor-pointer"
-                  >
-                    Try Again
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSettingsOpen(true)}
+                      className="min-h-[40px] px-3.5 py-2 rounded-lg bg-slate-800 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors cursor-pointer"
+                    >
+                      Settings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void loadAds()}
+                      className="min-h-[40px] px-3.5 py-2 rounded-lg bg-rose-500/20 text-xs font-semibold text-rose-200 hover:bg-rose-500/30 transition-colors cursor-pointer"
+                    >
+                      Try Again
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -491,7 +512,7 @@ export default function App() {
         aria-label="Mobile dashboard navigation"
         className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0F172A]/95 backdrop-blur-md border-t border-slate-800 pb-safe"
       >
-        <div className="grid grid-cols-2 h-14 max-w-md mx-auto">
+        <div className="grid grid-cols-3 h-14 max-w-md mx-auto">
           <button
             type="button"
             onClick={() => setMobileTab('ads')}
@@ -513,10 +534,28 @@ export default function App() {
             }`}
           >
             <PlusCircle className="w-5 h-5" aria-hidden="true" />
-            <span className="text-[11px] font-semibold">Add New Ad</span>
+            <span className="text-[11px] font-semibold">Add Ad</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className={`flex flex-col items-center justify-center gap-0.5 transition-colors cursor-pointer ${
+              settingsOpen ? 'text-[#F59E0B]' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Settings className="w-5 h-5" aria-hidden="true" />
+            <span className="text-[11px] font-semibold">Settings</span>
           </button>
         </div>
       </nav>
+
+      {/* Supabase & PIN Settings Modal */}
+      <SettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onSaved={handleSettingsSaved}
+      />
 
       {/* Full-Size Animated GIF Lightbox Preview */}
       {previewAd && (
